@@ -587,3 +587,72 @@ button[aria-disabled="true"],
 [role="button"][aria-disabled="true"] {
   cursor: not-allowed;
 }
+
+/* In phiếu khổ 80mm (vùng in ~72mm, 48 cột) — chỉ in phần phiếu trên trang /orders/[id]/bill. */
+@media print {
+  @page {
+    margin: 0;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .receipt-80mm,
+  .receipt-80mm * {
+    visibility: visible;
+  }
+
+  .receipt-80mm {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 72mm !important;
+    margin: 0 4mm !important;
+    padding: 0 !important;
+    border: 0 !important;
+  }
+
+  /* 72mm / 48 cột = 1.5mm mỗi ký tự; font monospace rộng ~0.6em => cỡ chữ 2.5mm. */
+  .receipt-80mm .rl {
+    font-size: 2.5mm !important;
+  }
+
+  .receipt-80mm .rl2 {
+    font-size: 5mm !important;
+  }
+}
+
+/* Dialog modal (theo modern-web-guidance: light-dismiss-a-dialog, prevent-page-scroll-under-modal-dialog) */
+dialog.app-dialog {
+  border: 0;
+  padding: 0;
+  border-radius: 1rem;
+  width: min(100% - 2rem, 40rem);
+  max-height: calc(100dvh - 2rem);
+  color: var(--brown);
+  background: var(--paper);
+  box-shadow: 0 24px 64px rgba(74, 45, 34, 0.25);
+}
+
+dialog.app-dialog.wide {
+  width: min(100% - 2rem, 64rem);
+}
+
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background: rgba(74, 45, 34, 0.45);
+}
+
+/* Ô PIN / OTP: 1 input duy nhất, chữ số cách nhau (sms-otp-form). */
+.code-input {
+  font-family: ui-monospace, monospace;
+  font-size: 1.5rem;
+  letter-spacing: 0.4em;
+  text-align: center;
+}

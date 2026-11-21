@@ -2,16 +2,16 @@
 
 ## Ưu tiên cao
 
-1. Hoàn thiện API và schema cho thực đơn, danh mục và tồn kho.
-2. Kết nối giỏ hàng khách hàng với PostgreSQL.
-3. Tạo đơn theo bàn và chặn duplicate submission.
-4. Revalidate stock, giá và tổng tiền phía server.
-5. Lịch sử và theo dõi đơn theo bàn.
+1. ~~Hoàn thiện API và schema cho thực đơn, danh mục và tồn kho.~~ ✅
+2. ~~Kết nối giỏ hàng khách hàng với PostgreSQL.~~ ✅
+3. ~~Tạo đơn theo bàn và chặn duplicate submission.~~ ✅
+4. ~~Revalidate stock, giá và tổng tiền phía server.~~ ✅
+5. ~~Lịch sử và theo dõi đơn theo bàn.~~ ✅ (polling; realtime vẫn chưa có)
 
 ## Ưu tiên trung bình
 
-1. CRUD bàn ăn.
-2. CRUD nhân viên và phân quyền.
+1. ~~CRUD bàn ăn.~~ ✅
+2. ~~CRUD nhân viên~~ ✅ và phân quyền (chưa kiểm tra role).
 3. Quản lý trạng thái món theo từng công đoạn.
 4. Hoá đơn và lịch sử thanh toán.
 5. Tìm kiếm và lọc đơn trong dashboard.

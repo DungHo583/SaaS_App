@@ -1,86 +1,279 @@
 "use client";
 
+import { faEyeSlash, faEye, faPen, faPlus, faTrash } from "@fortawesome/free-solid-svg-icons";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { useState } from "react";
+import AdminShell from "@/components/admin/AdminShell";
+import { api, errorMessage } from "@/components/ui/api";
+import Dialog from "@/components/ui/Dialog";
+import { ui } from "@/components/ui/styles";
+import { BADGE_LABELS, formatPrice } from "@/lib/format";
 
-export type MenuCategory = { id: number; name: string; sort_order: number; is_active: boolean };
+type Badge = keyof typeof BADGE_LABELS;
+export type MenuCategory = { id: string; name: string; sort_order: number; is_active: boolean };
 export type MenuItem = {
-    id: number; category_id: number; category_name: string; name: string; description: string;
-    price: number; icon: string; tag: string; stock: number; is_available: boolean;
+    id: string; category_id: string; category_name: string; name: string; description: string; unit: string;
+    price: number; image_url: string | null; highlight_badge: Badge | null; is_available: boolean;
+    manual_portions: number | null; sold_out_at: string | null; sort_order: number;
 };
 
-export default function MenuManager({ initialItems, initialCategories, user }: {
-    initialItems: MenuItem[]; initialCategories: MenuCategory[]; user: { name: string; email: string };
-}) {
+export default function MenuManager({ initialItems, initialCategories }: { initialItems: MenuItem[]; initialCategories: MenuCategory[] }) {
     const [items, setItems] = useState(initialItems);
-    const [categories] = useState(initialCategories);
+    const [categories, setCategories] = useState(initialCategories);
     const [editing, setEditing] = useState<MenuItem | null>(null);
     const [open, setOpen] = useState(false);
     const [error, setError] = useState("");
     const [saving, setSaving] = useState(false);
+    const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
+    const [categoryName, setCategoryName] = useState("");
+    const [categoryError, setCategoryError] = useState("");
+    const [preview, setPreview] = useState({ name: "", description: "", price: "", unit: "phần", badge: "" as Badge | "", image: null as string | null });
+
+    function openItemForm(item: MenuItem | null) {
+        setEditing(item);
+        setError("");
+        setPreview({
+            name: item?.name ?? "",
+            description: item?.description ?? "",
+            price: item ? String(item.price / 1000) : "",
+            unit: item?.unit ?? "phần",
+            badge: item?.highlight_badge ?? "",
+            image: item?.image_url ?? null,
+        });
+        setOpen(true);
+    }
 
     async function saveItem(event: React.FormEvent<HTMLFormElement>) {
         event.preventDefault();
-        setSaving(true); setError("");
+        setSaving(true);
+        setError("");
         const form = new FormData(event.currentTarget);
+        const portions = String(form.get("manualPortions") ?? "").trim();
         const payload = {
-            categoryId: Number(form.get("categoryId")), name: String(form.get("name") ?? ""),
-            description: String(form.get("description") ?? ""), price: Number(form.get("price")),
-            stock: Number(form.get("stock")), icon: String(form.get("icon") ?? "🍽️"),
-            tag: String(form.get("tag") ?? ""), isAvailable: form.get("isAvailable") === "on" || !editing,
+            categoryId: String(form.get("categoryId") ?? ""),
+            name: preview.name,
+            description: preview.description,
+            unit: preview.unit,
+            price: Math.round(Number(preview.price) * 1000),
+            manualPortions: portions === "" ? null : Number(portions),
+            imageUrl: preview.image,
+            highlightBadge: preview.badge || null,
+            isAvailable: form.get("isAvailable") === "on",
+            sortOrder: editing?.sort_order ?? items.length + 1,
         };
-        const response = await fetch(editing ? `/api/admin/menu/${editing.id}` : "/api/admin/menu", {
-            method: editing ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
-        });
-        const data = await response.json();
-        if (!response.ok) { setError(data.error ?? "Không thể lưu món."); setSaving(false); return; }
-        setItems((current) => editing ? current.map((item) => item.id === editing.id ? data.item : item) : [...current, data.item]);
-        setOpen(false); setEditing(null); setSaving(false);
+        try {
+            const data = await api<{ item: MenuItem }>(editing ? `/api/admin/menu/${editing.id}` : "/api/admin/menu", {
+                method: editing ? "PATCH" : "POST",
+                body: payload,
+            });
+            setItems((current) => editing ? current.map((item) => item.id === editing.id ? data.item : item) : [...current, data.item]);
+            setOpen(false);
+        } catch (err) {
+            setError(errorMessage(err));
+        } finally {
+            setSaving(false);
+        }
     }
 
     async function removeItem(item: MenuItem) {
-        if (!confirm(`Ngừng bán ${item.name}?`)) return;
-        const response = await fetch(`/api/admin/menu/${item.id}`, { method: "DELETE" });
-        if (response.ok) setItems((current) => current.map((row) => row.id === item.id ? { ...row, is_available: false } : row));
+        if (!confirm(`Xoá món "${item.name}" khỏi thực đơn? Đơn và phiếu cũ vẫn giữ nguyên.`)) return;
+        try {
+            await api(`/api/admin/menu/${item.id}`, { method: "DELETE" });
+            setItems((current) => current.filter((row) => row.id !== item.id));
+        } catch (err) {
+            alert(errorMessage(err));
+        }
     }
 
-    async function logout() {
-        await fetch("/api/admin/logout", { method: "POST" });
-        window.location.assign("/admin/login");
+    function handleImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) { setError("Chỉ nhận ảnh PNG, JPEG, WebP hoặc GIF."); return; }
+        if (file.size > 2 * 1024 * 1024) { setError("Ảnh phải nhỏ hơn 2MB."); return; }
+        const reader = new FileReader();
+        reader.onload = () => setPreview((current) => ({ ...current, image: String(reader.result) }));
+        reader.readAsDataURL(file);
     }
+
+    async function saveCategory(event: React.FormEvent<HTMLFormElement>) {
+        event.preventDefault();
+        setCategoryError("");
+        const name = categoryName.trim();
+        if (!name) return;
+        try {
+            const data = await api<{ category: MenuCategory }>("/api/admin/menu/categories", { body: { name } });
+            setCategories((current) => [...current, data.category]);
+            setCategoryName("");
+        } catch (err) {
+            setCategoryError(errorMessage(err));
+        }
+    }
+
+    async function updateCategory(category: MenuCategory, patch: Partial<MenuCategory>) {
+        try {
+            const data = await api<{ category: MenuCategory }>(`/api/admin/menu/categories/${category.id}`, { method: "PATCH", body: patch });
+            setCategories((current) => current.map((row) => row.id === category.id ? data.category : row));
+            if (patch.name) setItems((current) => current.map((item) => item.category_id === category.id ? { ...item, category_name: data.category.name } : item));
+        } catch (err) {
+            setCategoryError(errorMessage(err));
+        }
+    }
+
+    async function deleteCategory(category: MenuCategory) {
+        if (!confirm(`Xoá danh mục ${category.name}?`)) return;
+        try {
+            await api(`/api/admin/menu/categories/${category.id}`, { method: "DELETE" });
+            setCategories((current) => current.filter((row) => row.id !== category.id));
+        } catch (err) {
+            setCategoryError(errorMessage(err));
+        }
+    }
+
+    const badgeLabel = (badge: Badge | "" | null) => badge ? BADGE_LABELS[badge] : null;
 
     return (
-        <main className="min-h-dvh bg-[#f7f3ed] text-[#4a2d22]">
-            <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-[#eee3d7] bg-white p-4 lg:block">
-                <a href="/admin/dashboard" className="mb-8 flex items-center gap-3 px-2 py-3"><div className="grid size-11 place-items-center rounded-xl bg-[#4a2d22] text-xl">🍜</div><div><p className="font-bold">Bếp Nhà</p><p className="text-xs text-[#806d62]">Quản trị</p></div></a>
-                <nav className="flex flex-col gap-1" aria-label="Điều hướng quản trị">
-                    <a href="/admin/dashboard" className="flex min-h-12 items-center rounded-xl px-4 text-sm text-[#806d62] hover:bg-[#fffaf3]">Tổng quan</a>
-                    <a href="/admin/menu" className="flex min-h-12 items-center rounded-xl bg-[#4a2d22] px-4 text-sm font-semibold text-white">Thực đơn</a>
-                    <a href="/admin/tables" className="flex min-h-12 items-center rounded-xl px-4 text-sm text-[#806d62] hover:bg-[#fffaf3]">Bàn ăn</a>
-                    <a href="/admin/staff" className="flex min-h-12 items-center rounded-xl px-4 text-sm text-[#806d62] hover:bg-[#fffaf3]">Nhân viên</a>
-                </nav>
-                <button type="button" onClick={logout} className="absolute bottom-4 left-4 right-4 min-h-12 rounded-xl border border-[#eee3d7] text-sm font-semibold">Đăng xuất</button>
-            </aside>
+        <AdminShell
+            title="Quản lý thực đơn"
+            actions={<button type="button" onClick={() => openItemForm(null)} disabled={categories.length === 0} className={`${ui.primary} min-h-11 text-sm`}><FontAwesomeIcon icon={faPlus} /> Thêm món</button>}
+        >
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-[#806d62]">{items.length} món · {categories.length} danh mục</p>
+                <button type="button" onClick={() => setCategoryManagerOpen(true)} className={ui.small}>Quản lý danh mục</button>
+            </div>
+            {categories.length === 0 && <p className={`${ui.error} mb-4`}>Chưa có danh mục. Tạo danh mục trước khi thêm món.</p>}
 
-            <section className="lg:ml-64">
-                <header className="flex min-h-20 items-center justify-between border-b border-[#eee3d7] bg-white px-4 sm:px-8">
-                    <div><p className="text-xs text-[#806d62]">Quản trị nhà hàng</p><h1 className="text-xl font-bold">Quản lý thực đơn</h1></div>
-                    <div className="hidden text-right sm:block"><p className="text-sm font-bold">{user.name}</p><p className="text-xs text-[#806d62]">{user.email}</p></div>
-                </header>
-
-                <div className="p-4 sm:p-8">
-                    <div className="mb-5 flex items-center justify-between"><p className="text-sm text-[#806d62]">{items.length} món trong thực đơn</p><button type="button" onClick={() => { setEditing(null); setError(""); setOpen(true); }} className="min-h-11 rounded-xl bg-[#ef7d32] px-4 text-sm font-bold text-white">+ Thêm món</button></div>
-                    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                        {items.map((item) => (
-                            <article key={item.id} className="grid grid-cols-[45%_55%] overflow-hidden rounded-2xl border border-[#eee3d7] bg-white">
-                                <div className="grid place-items-center bg-[#f6e8d7] text-6xl">{item.icon}</div>
-                                <div className="min-w-0 p-4"><div className="mb-2 flex justify-between gap-2"><span className="text-xs text-[#806d62]">{item.category_name}</span><span className={`text-xs ${item.is_available ? "text-green-700" : "text-gray-500"}`}>{item.is_available ? "Đang bán" : "Ngưng bán"}</span></div><h2 className="mb-1 font-bold">{item.name}</h2><p className="mb-3 min-h-10 text-xs text-[#806d62]">{item.description}</p><strong className="text-[#b84d1d]">{new Intl.NumberFormat("vi-VN").format(item.price)}đ</strong><p className="mt-1 text-xs text-[#806d62]">Tồn kho: {item.stock}</p><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => { setEditing(item); setError(""); setOpen(true); }} className="min-h-10 rounded-xl border border-[#eee3d7] text-xs font-semibold">Sửa</button><button type="button" disabled={!item.is_available} onClick={() => removeItem(item)} className="min-h-10 rounded-xl border border-red-200 text-xs font-semibold text-red-700 disabled:opacity-40">Ngưng bán</button></div></div>
-                            </article>
-                        ))}
-                    </section>
-                </div>
+            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {items.map((item) => (
+                    <article key={item.id} className="grid grid-cols-[45%_55%] overflow-hidden rounded-2xl border border-[#eee3d7] bg-white">
+                        <div className="relative grid min-h-44 place-items-center overflow-hidden bg-[#f6e8d7]">
+                            {item.image_url
+                                ? /* eslint-disable-next-line @next/next/no-img-element -- ảnh do owner tải lên (data URL), không qua image optimizer */
+                                <img src={item.image_url} alt={item.name} className="h-full w-full object-cover" />
+                                : <span className="text-6xl" aria-hidden="true">🍽️</span>}
+                            {item.highlight_badge && <span className="absolute left-2 top-2 rounded-full bg-[#ef7d32] px-2 py-1 text-[0.65rem] font-bold text-white">{badgeLabel(item.highlight_badge)}</span>}
+                        </div>
+                        <div className="min-w-0 p-4">
+                            <div className="mb-2 flex justify-between gap-2">
+                                <span className="truncate text-xs text-[#806d62]">{item.category_name}</span>
+                                <span className={`text-xs ${!item.is_available ? "text-gray-500" : item.sold_out_at ? "text-red-700" : "text-green-700"}`}>
+                                    {!item.is_available ? "Ngưng bán" : item.sold_out_at ? "Bếp báo hết" : "Đang bán"}
+                                </span>
+                            </div>
+                            <h2 className="mb-1 font-bold">{item.name}</h2>
+                            <p className="mb-3 min-h-10 text-xs text-[#806d62]">{item.description}</p>
+                            <strong className="text-[#b84d1d]">{formatPrice(item.price)}<span className="text-xs font-normal text-[#806d62]"> / {item.unit}</span></strong>
+                            <p className="mt-1 text-xs text-[#806d62]">{item.manual_portions === null ? "Không giới hạn số phần" : `Còn ${item.manual_portions} phần`}</p>
+                            <div className="mt-3 flex gap-2">
+                                <button type="button" onClick={() => openItemForm(item)} className={ui.small} aria-label={`Sửa ${item.name}`}><FontAwesomeIcon icon={faPen} /> Sửa</button>
+                                <button type="button" onClick={() => removeItem(item)} className={ui.danger} aria-label={`Xoá ${item.name}`}><FontAwesomeIcon icon={faTrash} /></button>
+                            </div>
+                        </div>
+                    </article>
+                ))}
             </section>
 
-            {open && <div className="fixed inset-0 z-50 grid place-items-center bg-[#4a2d22]/40 p-4"><section role="dialog" aria-modal="true" className="w-full max-w-lg rounded-2xl bg-white p-5"><h2 className="mb-5 text-xl font-bold">{editing ? "Chỉnh sửa món" : "Thêm món mới"}</h2>{error && <p role="alert" className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}<form onSubmit={saveItem}><label className="mb-4 block"><span className="mb-2 block text-sm font-semibold">Tên món</span><input name="name" defaultValue={editing?.name ?? ""} required className="min-h-12 w-full rounded-xl border border-[#d9cbbf] px-3" /></label><label className="mb-4 block"><span className="mb-2 block text-sm font-semibold">Danh mục</span><select name="categoryId" defaultValue={editing?.category_id ?? categories[0]?.id} className="min-h-12 w-full rounded-xl border border-[#d9cbbf] px-3">{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label className="mb-4 block"><span className="mb-2 block text-sm font-semibold">Mô tả</span><textarea name="description" defaultValue={editing?.description ?? ""} className="min-h-20 w-full rounded-xl border border-[#d9cbbf] p-3" /></label><div className="mb-4 grid grid-cols-2 gap-3"><label><span className="mb-2 block text-sm font-semibold">Giá</span><input name="price" type="number" min="0" defaultValue={editing?.price ?? 0} required className="min-h-12 w-full rounded-xl border border-[#d9cbbf] px-3" /></label><label><span className="mb-2 block text-sm font-semibold">Tồn kho</span><input name="stock" type="number" min="0" defaultValue={editing?.stock ?? 999} required className="min-h-12 w-full rounded-xl border border-[#d9cbbf] px-3" /></label></div><div className="mb-6 grid grid-cols-2 gap-3"><label><span className="mb-2 block text-sm font-semibold">Icon</span><input name="icon" defaultValue={editing?.icon ?? "🍽️"} className="min-h-12 w-full rounded-xl border border-[#d9cbbf] px-3" /></label><label><span className="mb-2 block text-sm font-semibold">Nhãn</span><input name="tag" defaultValue={editing?.tag ?? ""} className="min-h-12 w-full rounded-xl border border-[#d9cbbf] px-3" /></label></div>{editing && <label className="mb-6 flex items-center gap-3"><input name="isAvailable" type="checkbox" defaultChecked={editing.is_available} className="size-5 accent-[#ef7d32]" /><span className="text-sm font-semibold">Đang bán</span></label>}<div className="grid grid-cols-2 gap-3"><button type="button" onClick={() => setOpen(false)} className="min-h-12 rounded-xl border border-[#eee3d7] font-semibold">Huỷ</button><button type="submit" disabled={saving} className="min-h-12 rounded-xl bg-[#ef7d32] font-bold text-white disabled:opacity-60">{saving ? "Đang lưu..." : "Lưu món"}</button></div></form></section></div>}
-        </main>
+            <Dialog open={categoryManagerOpen} onClose={() => setCategoryManagerOpen(false)} title="Quản lý danh mục">
+                {categoryError && <p role="alert" className={`${ui.error} mb-3`}>{categoryError}</p>}
+                <form onSubmit={saveCategory} className="mb-4 flex gap-2">
+                    <label htmlFor="category-name" className="sr-only">Tên danh mục mới</label>
+                    <input id="category-name" value={categoryName} onChange={(event) => setCategoryName(event.target.value)} placeholder="Tên danh mục mới" maxLength={100} className={`${ui.input} flex-1`} />
+                    <button type="submit" className={ui.primary}><FontAwesomeIcon icon={faPlus} /> Thêm</button>
+                </form>
+                <ul className="space-y-2">
+                    {categories.map((category) => (
+                        <li key={category.id} className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 rounded-xl border border-[#eee3d7] px-3 py-2">
+                            <span className={`truncate text-sm ${category.is_active ? "" : "text-[#806d62] line-through"}`}>{category.name}</span>
+                            <button type="button" onClick={() => { const name = window.prompt("Tên danh mục", category.name)?.trim(); if (name) updateCategory(category, { name }); }} className={ui.small} aria-label={`Đổi tên ${category.name}`}><FontAwesomeIcon icon={faPen} /></button>
+                            <button type="button" onClick={() => updateCategory(category, { is_active: !category.is_active })} className={ui.small} aria-label={category.is_active ? `Ẩn ${category.name}` : `Hiện ${category.name}`}>
+                                <FontAwesomeIcon icon={category.is_active ? faEyeSlash : faEye} />
+                            </button>
+                            <button type="button" onClick={() => deleteCategory(category)} className={ui.danger} aria-label={`Xoá ${category.name}`}><FontAwesomeIcon icon={faTrash} /></button>
+                        </li>
+                    ))}
+                </ul>
+            </Dialog>
+
+            <Dialog open={open} onClose={() => setOpen(false)} title={editing ? "Chỉnh sửa món" : "Thêm món mới"} wide>
+                {error && <p role="alert" className={`${ui.error} mb-4`}>{error}</p>}
+                <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+                    <form onSubmit={saveItem} className="grid gap-4">
+                        <div>
+                            <label htmlFor="item-name" className={ui.label}>Tên món</label>
+                            <input id="item-name" value={preview.name} onChange={(event) => setPreview({ ...preview, name: event.target.value })} required maxLength={150} className={ui.input} />
+                        </div>
+                        <div>
+                            <label htmlFor="item-category" className={ui.label}>Danh mục</label>
+                            <select id="item-category" name="categoryId" defaultValue={editing?.category_id ?? categories.find((category) => category.is_active)?.id} required className={ui.input}>
+                                {categories.map((category) => <option key={category.id} value={category.id}>{category.name}{category.is_active ? "" : " (đang ẩn)"}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label htmlFor="item-description" className={ui.label}>Mô tả</label>
+                            <textarea id="item-description" value={preview.description} onChange={(event) => setPreview({ ...preview, description: event.target.value })} maxLength={500} className="min-h-20 w-full rounded-xl border border-[#d9cbbf] p-3" />
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-3">
+                            <div>
+                                <label htmlFor="item-price" className={ui.label}>Giá</label>
+                                <div className="flex overflow-hidden rounded-xl border border-[#d9cbbf] bg-white focus-within:border-[#ef7d32]">
+                                    <input id="item-price" type="number" min="0" step="1" inputMode="numeric" value={preview.price} onChange={(event) => setPreview({ ...preview, price: event.target.value })} required className="min-h-12 min-w-0 flex-1 px-3 outline-none" />
+                                    <span className="grid place-items-center border-l border-[#eee3d7] px-3 font-semibold text-[#806d62]">.000đ</span>
+                                </div>
+                            </div>
+                            <div>
+                                <label htmlFor="item-unit" className={ui.label}>Đơn vị tính</label>
+                                <input id="item-unit" value={preview.unit} onChange={(event) => setPreview({ ...preview, unit: event.target.value })} required maxLength={20} list="unit-suggestions" className={ui.input} />
+                                <datalist id="unit-suggestions"><option value="phần" /><option value="tô" /><option value="đĩa" /><option value="ly" /><option value="chai" /><option value="lon" /><option value="suất" /></datalist>
+                            </div>
+                            <div>
+                                <label htmlFor="item-portions" className={ui.label}>Số phần còn bán</label>
+                                <input id="item-portions" name="manualPortions" type="number" min="0" inputMode="numeric" defaultValue={editing?.manual_portions ?? ""} placeholder="Không giới hạn" className={ui.input} />
+                            </div>
+                        </div>
+                        <p className={ui.hint}>Đơn vị tính bắt buộc trên phiếu thanh toán. Số phần còn bán để trống = không giới hạn; khi bật module kho, số phần tính theo định lượng nguyên liệu.</p>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                            <div>
+                                <label htmlFor="item-image" className={ui.label}>Ảnh món ăn</label>
+                                <input id="item-image" type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleImageUpload} className="block min-h-12 w-full rounded-xl border border-[#d9cbbf] px-2 py-2 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-[#ef7d32] file:px-3 file:py-2 file:font-semibold file:text-white" />
+                                {preview.image && <button type="button" onClick={() => setPreview({ ...preview, image: null })} className="mt-1 text-xs text-red-700 underline">Bỏ ảnh</button>}
+                            </div>
+                            <div>
+                                <label htmlFor="item-badge" className={ui.label}>Nhãn món nổi bật</label>
+                                <select id="item-badge" value={preview.badge} onChange={(event) => setPreview({ ...preview, badge: event.target.value as Badge | "" })} className={ui.input}>
+                                    <option value="">Không có</option>
+                                    {Object.entries(BADGE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                                </select>
+                            </div>
+                        </div>
+                        <label className="flex min-h-12 items-center gap-3">
+                            <input name="isAvailable" type="checkbox" defaultChecked={editing?.is_available ?? true} className="size-5 accent-[#ef7d32]" />
+                            <span className="text-sm font-semibold">Đang bán (hiện trên thực đơn của khách)</span>
+                        </label>
+                        <div className="grid grid-cols-2 gap-3">
+                            <button type="button" onClick={() => setOpen(false)} className={ui.secondary}>Huỷ</button>
+                            <button type="submit" disabled={saving} className={ui.primary}>{saving ? "Đang lưu..." : "Lưu món"}</button>
+                        </div>
+                    </form>
+
+                    <aside aria-label="Xem trước món ăn">
+                        <p className="mb-2 text-sm font-semibold">Xem trước món ăn</p>
+                        <article className="grid min-h-48 grid-cols-[45%_55%] overflow-hidden rounded-2xl border border-[#eee3d7] bg-white">
+                            <div className="relative grid min-h-48 place-items-center overflow-hidden bg-[#f6e8d7]">
+                                {preview.image
+                                    ? /* eslint-disable-next-line @next/next/no-img-element -- xem trước ảnh vừa chọn (data URL) */
+                                    <img src={preview.image} alt={preview.name || "Xem trước món ăn"} className="h-full w-full object-cover" />
+                                    : <span className="text-6xl" aria-hidden="true">🍽️</span>}
+                                {preview.badge && <span className="absolute left-2 top-2 rounded-full bg-[#ef7d32] px-2 py-1 text-[0.65rem] font-bold text-white">{badgeLabel(preview.badge)}</span>}
+                            </div>
+                            <div className="p-3">
+                                <h3 className="mb-1 font-bold">{preview.name || "Tên món ăn"}</h3>
+                                <p className="min-h-10 text-xs text-[#806d62]">{preview.description || "Mô tả món ăn"}</p>
+                                <strong className="mt-2 block text-lg text-[#b84d1d]">{preview.price ? formatPrice(Math.round(Number(preview.price) * 1000)) : "0đ"}</strong>
+                                <span className="mt-3 flex min-h-11 w-full items-center justify-center rounded-xl bg-[#ef7d32] text-sm font-bold text-white">+ Thêm</span>
+                            </div>
+                        </article>
+                    </aside>
+                </div>
+            </Dialog>
+        </AdminShell>
     );
 }

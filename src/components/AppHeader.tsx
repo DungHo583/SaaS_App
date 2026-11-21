@@ -1,12 +1,16 @@
+import { faBars, faCartShopping } from "@fortawesome/free-solid-svg-icons";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { RefObject } from "react";
 
 type AppHeaderProps = {
+    restaurantName: string;
+    tableName: string | null;
     itemCount: number;
     navDialogRef: RefObject<HTMLDialogElement | null>;
     cartDialogRef: RefObject<HTMLDialogElement | null>;
 };
 
-export default function AppHeader({ itemCount, navDialogRef, cartDialogRef }: AppHeaderProps) {
+export default function AppHeader({ restaurantName, tableName, itemCount, navDialogRef, cartDialogRef }: AppHeaderProps) {
     return (
         <header className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
@@ -17,11 +21,11 @@ export default function AppHeader({ itemCount, navDialogRef, cartDialogRef }: Ap
                     aria-haspopup="dialog"
                     onClick={() => navDialogRef.current?.showModal()}
                 >
-                    <span aria-hidden="true">☰</span>
+                    <FontAwesomeIcon icon={faBars} />
                 </button>
                 <div>
-                    <p className="mb-0.5 text-xs text-[#806d62]">Xin chào 👋</p>
-                    <h1 className="text-xl font-bold text-[#4a2d22] sm:text-2xl">Bếp Nhà</h1>
+                    <p className="mb-0.5 text-xs text-[#806d62]">{tableName ? `Xin chào · ${tableName}` : "Xin chào 👋"}</p>
+                    <h1 className="text-xl font-bold text-[#4a2d22] sm:text-2xl">{restaurantName}</h1>
                 </div>
             </div>
 
@@ -31,7 +35,7 @@ export default function AppHeader({ itemCount, navDialogRef, cartDialogRef }: Ap
                 aria-haspopup="dialog"
                 onClick={() => cartDialogRef.current?.showModal()}
             >
-                <span className="text-base" aria-hidden="true">🛒</span>
+                <FontAwesomeIcon icon={faCartShopping} />
                 <span className="max-[380px]:hidden">Giỏ hàng</span>
                 <strong className="grid size-8 place-items-center rounded-[0.65rem] bg-[#ef7d32]">{itemCount}</strong>
             </button>

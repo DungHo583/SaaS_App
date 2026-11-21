@@ -12,5 +12,14 @@ services:
     volumes:
       - saas_app_postgres_data:/var/lib/postgresql/data
 
+  # Chỉ dùng cho development: hộp thư giả lập, mọi email gửi đi được giữ lại để xem tại http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:v1.27
+    container_name: saas_app_mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
 volumes:
   saas_app_postgres_data:

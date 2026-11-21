@@ -1,140 +1,114 @@
 "use client";
 
+import { faCheck, faReceipt, faSackDollar, faTriangleExclamation, faUtensils, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import Link from "next/link";
 import { useState } from "react";
+import AdminShell from "@/components/admin/AdminShell";
+import { api, errorMessage } from "@/components/ui/api";
+import { ui } from "@/components/ui/styles";
+import { formatDateTime, formatPrice } from "@/lib/format";
 
-const navItems = [
-    { label: "Tổng quan", icon: "▦" },
-    { label: "Đơn gọi món", icon: "▤", href: "/admin/dashboard" },
-    { label: "Thực đơn", icon: "🍽", href: "/admin/menu" },
-    { label: "Bàn ăn", icon: "♟", href: "/admin/tables" },
-    { label: "Nhân viên", icon: "◉", href: "/admin/staff" },
-];
+type Approval = {
+    id: string; approval_type: string; amount: number | null; reason: string; requested_at: string;
+    requested_by: string; table_names: string | null;
+};
+type TableTile = { id: string; name: string; area: string; capacity: number; busy: boolean; isActive: boolean };
 
-export default function AdminDashboardClient({
-    user,
-    tables,
-    orderCount,
-    revenue,
-}: {
-    user: { name: string; email: string };
-    tables: Array<{ id: number; name: string; capacity: number; status: string }>;
-    orderCount: number;
-    revenue: number;
+export default function AdminDashboardClient({ stats, approvals: initialApprovals, tables }: {
+    stats: { revenue: number; bills: number; openSessions: number; wasted: number; junkRounds: number; tables: number };
+    approvals: Approval[];
+    tables: TableTile[];
 }) {
-    const [activeNav, setActiveNav] = useState("Tổng quan");
+    const [approvals, setApprovals] = useState(initialApprovals);
+    const [error, setError] = useState("");
 
-    async function logout() {
-        await fetch("/api/admin/logout", { method: "POST" });
-        window.location.assign("/admin/login");
+    async function decide(approval: Approval, decision: "approved" | "rejected") {
+        const note = decision === "rejected"
+            ? window.prompt("Lý do từ chối (nhân viên sẽ phải giải trình):")?.trim()
+            : window.prompt("Ghi chú duyệt (không bắt buộc):", "")?.trim();
+        if (decision === "rejected" && !note) return;
+        setError("");
+        try {
+            await api(`/api/admin/approvals/${approval.id}`, { body: { decision, note: note || null } });
+            setApprovals((current) => current.filter((item) => item.id !== approval.id));
+        } catch (err) {
+            setError(errorMessage(err));
+        }
     }
 
+    const cards = [
+        { label: "Doanh thu hôm nay", value: formatPrice(stats.revenue), icon: faSackDollar },
+        { label: "Phiếu đã thanh toán", value: stats.bills, icon: faReceipt },
+        { label: "Bàn đang phục vụ", value: `${stats.openSessions} / ${stats.tables}`, icon: faUtensils },
+        { label: "Huỷ sau khi nấu / order rác", value: `${stats.wasted} / ${stats.junkRounds}`, icon: faTriangleExclamation },
+    ];
+
     return (
-        <main className="min-h-dvh bg-[#f7f3ed] text-[#4a2d22]">
-            <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 border-r border-[#eee3d7] bg-white p-4 lg:block">
-                <div className="mb-8 flex items-center gap-3 px-2 py-3">
-                    <div className="grid size-11 place-items-center rounded-xl bg-[#4a2d22] text-xl" aria-hidden="true">🍜</div>
-                    <div>
-                        <p className="font-bold">Bếp Nhà</p>
-                        <p className="text-xs text-[#806d62]">Quản trị</p>
-                    </div>
-                </div>
+        <AdminShell title="Tổng quan" subtitle="Bảng điều khiển">
+            <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {cards.map((card) => (
+                    <article key={card.label} className={`${ui.card} p-5`}>
+                        <p className="flex items-center gap-2 text-sm text-[#806d62]"><FontAwesomeIcon icon={card.icon} />{card.label}</p>
+                        <strong className="mt-2 block text-3xl">{card.value}</strong>
+                    </article>
+                ))}
+            </div>
 
-                <nav className="flex flex-col gap-1" aria-label="Điều hướng quản trị">
-                    {navItems.map((item) => (
-                        "href" in item ? (
-                            <a
-                                key={item.label}
-                                href={item.href}
-                                aria-current={activeNav === item.label ? "page" : undefined}
-                                className={activeNav === item.label
-                                    ? "flex min-h-12 items-center gap-3 rounded-xl bg-[#4a2d22] px-4 text-sm font-semibold text-white"
-                                    : "flex min-h-12 items-center gap-3 rounded-xl px-4 text-sm text-[#806d62] hover:bg-[#fffaf3]"}
-                            >
-                                <span className="w-5 text-center">{item.icon}</span>{item.label}
-                            </a>
-                        ) : (
-                            <button
-                                key={item.label}
-                                type="button"
-                                onClick={() => setActiveNav(item.label)}
-                                aria-current={activeNav === item.label ? "page" : undefined}
-                                className="flex min-h-12 items-center gap-3 rounded-xl px-4 text-sm text-[#806d62] hover:bg-[#fffaf3]"
-                            >
-                                <span className="w-5 text-center">{item.icon}</span>{item.label}
-                            </button>
-                        )
-                    ))}
-                </nav>
-
-                <button type="button" onClick={logout} className="absolute bottom-4 left-4 right-4 min-h-12 rounded-xl border border-[#eee3d7] text-sm font-semibold hover:bg-[#fffaf3]">
-                    Đăng xuất
-                </button>
-            </aside>
-
-            <section className="lg:ml-64">
-                <header className="flex min-h-20 items-center justify-between border-b border-[#eee3d7] bg-white px-4 sm:px-8">
-                    <div>
-                        <p className="text-xs text-[#806d62]">Bảng điều khiển</p>
-                        <h1 className="text-xl font-bold">{activeNav}</h1>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <div className="hidden text-right sm:block">
-                            <p className="text-sm font-bold">{user.name}</p>
-                            <p className="text-xs text-[#806d62]">{user.email}</p>
-                        </div>
-                        <div className="grid size-11 place-items-center rounded-full bg-[#ef7d32] font-bold text-white" aria-hidden="true">{user.name.slice(0, 1).toUpperCase()}</div>
-                    </div>
+            <section className={`${ui.card} mb-6 overflow-hidden`} aria-labelledby="approvals-title">
+                <header className="flex items-center justify-between border-b border-[#eee3d7] px-5 py-4">
+                    <h2 id="approvals-title" className="font-bold">Chờ owner duyệt</h2>
+                    <span className={`${ui.badge} ${approvals.length ? "bg-orange-100 text-orange-800" : "bg-green-100 text-green-800"}`}>{approvals.length}</span>
                 </header>
-
-                <div className="p-4 sm:p-8">
-                    <div className="mb-6 grid gap-4 sm:grid-cols-3">
-                        <article className="rounded-2xl border border-[#eee3d7] bg-white p-5">
-                            <p className="text-sm text-[#806d62]">Đơn gọi món</p>
-                            <strong className="mt-2 block text-3xl">{orderCount}</strong>
-                        </article>
-                        <article className="rounded-2xl border border-[#eee3d7] bg-white p-5">
-                            <p className="text-sm text-[#806d62]">Doanh thu</p>
-                            <strong className="mt-2 block text-3xl">{new Intl.NumberFormat("vi-VN").format(revenue)}đ</strong>
-                        </article>
-                        <article className="rounded-2xl border border-[#eee3d7] bg-white p-5">
-                            <p className="text-sm text-[#806d62]">Số bàn</p>
-                            <strong className="mt-2 block text-3xl">{tables.length}</strong>
-                        </article>
-                    </div>
-
-                    <section className="overflow-hidden rounded-2xl border border-[#eee3d7] bg-white">
-                        <header className="flex items-center justify-between border-b border-[#eee3d7] px-5 py-4">
-                            <h2 className="font-bold">Trạng thái bàn</h2>
-                            <button type="button" className="min-h-11 rounded-xl bg-[#ef7d32] px-4 text-sm font-bold text-white">Thêm bàn</button>
-                        </header>
-                        <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-4">
-                            {tables.length === 0 ? (
-                                <p className="col-span-full py-10 text-center text-sm text-[#806d62]">Chưa có dữ liệu bàn. Hãy chạy khởi tạo database.</p>
-                            ) : tables.map((table) => (
-                                <article key={table.id} className="rounded-xl border border-[#eee3d7] p-4">
-                                    <div className="mb-4 flex items-center justify-between">
-                                        <strong>{table.name}</strong>
-                                        <span className={table.status === "available" ? "rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-700" : "rounded-full bg-orange-100 px-2 py-1 text-xs font-semibold text-orange-700"}>
-                                            {table.status === "available" ? "Trống" : table.status}
-                                        </span>
-                                    </div>
-                                    <p className="text-sm text-[#806d62]">Sức chứa: {table.capacity} khách</p>
-                                </article>
-                            ))}
-                        </div>
-                    </section>
-                </div>
+                {error && <p role="alert" className={`${ui.error} m-4`}>{error}</p>}
+                {approvals.length === 0 ? (
+                    <p className="px-5 py-8 text-center text-sm text-[#806d62]">Không có yêu cầu nào.</p>
+                ) : (
+                    <ul className="divide-y divide-[#eee3d7]">
+                        {approvals.map((approval) => (
+                            <li key={approval.id} className="grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                                <div>
+                                    <p className="font-bold">
+                                        Đóng phiên bất thường · {approval.table_names ?? "Mang về"} · <span className="text-[#b84d1d]">{formatPrice(approval.amount ?? 0)}</span>
+                                    </p>
+                                    <p className="text-sm">{approval.reason}</p>
+                                    <p className="text-xs text-[#806d62]">@{approval.requested_by} · {formatDateTime(approval.requested_at)}</p>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button type="button" onClick={() => decide(approval, "approved")} className={ui.small}>
+                                        <FontAwesomeIcon icon={faCheck} /> Duyệt (ghi thất thoát)
+                                    </button>
+                                    <button type="button" onClick={() => decide(approval, "rejected")} className={ui.danger}>
+                                        <FontAwesomeIcon icon={faXmark} /> Từ chối
+                                    </button>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                )}
             </section>
 
-            <nav className="fixed inset-x-3 bottom-3 z-30 flex justify-around rounded-2xl border border-[#eee3d7] bg-white p-2 shadow-lg lg:hidden" aria-label="Điều hướng quản trị di động">
-                {navItems.slice(0, 4).map((item) => (
-                    "href" in item ? (
-                        <a key={item.label} href={item.href} className="grid min-h-12 min-w-12 place-items-center rounded-xl text-xs" aria-label={item.label}>{item.icon}</a>
-                    ) : (
-                        <button key={item.label} type="button" onClick={() => setActiveNav(item.label)} className="grid min-h-12 min-w-12 place-items-center rounded-xl text-xs" aria-label={item.label}>{item.icon}</button>
-                    )
-                ))}
-            </nav>
-        </main>
+            <section className={`${ui.card} overflow-hidden`} aria-labelledby="tables-title">
+                <header className="flex items-center justify-between border-b border-[#eee3d7] px-5 py-4">
+                    <h2 id="tables-title" className="font-bold">Trạng thái bàn</h2>
+                    <Link href="/admin/tables" className={`${ui.primary} min-h-11 text-sm`}>Quản lý bàn</Link>
+                </header>
+                <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-4">
+                    {tables.length === 0 ? (
+                        <p className="col-span-full py-10 text-center text-sm text-[#806d62]">Chưa có bàn. Thêm bàn trong mục Bàn ăn.</p>
+                    ) : tables.map((table) => (
+                        <article key={table.id} className="rounded-xl border border-[#eee3d7] p-4">
+                            <div className="mb-3 flex items-center justify-between">
+                                <strong>{table.name}</strong>
+                                <span className={`${ui.badge} ${!table.isActive ? "bg-gray-100 text-gray-600" : table.busy ? "bg-orange-100 text-orange-700" : "bg-green-100 text-green-700"}`}>
+                                    {!table.isActive ? "Tạm ngưng" : table.busy ? "Đang phục vụ" : "Trống"}
+                                </span>
+                            </div>
+                            <p className="text-sm text-[#806d62]">{table.area || "Chưa đặt khu vực"} · {table.capacity} khách</p>
+                        </article>
+                    ))}
+                </div>
+            </section>
+        </AdminShell>
     );
 }
