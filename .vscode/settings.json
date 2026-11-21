@@ -1,0 +1,8 @@
+{
+  "chat.tools.terminal.autoApprove": {
+    "npx -y modern-web-guidance@latest": true,
+    "npm install": true,
+    "docker exec": true,
+    "break": true
+  }
+}
